@@ -66,4 +66,4 @@ cotafe-java-demo/
 - Chạy offline trên **cùng một máy / một thư mục**; không dùng để chia sẻ qua nhiều máy hoặc ổ đĩa mạng.
 - Không có đăng nhập, phân quyền, in hóa đơn, tích hợp API ngân hàng hay QR thanh toán thật.
 - Ảnh món dùng bản crop từ ảnh tham khảo nên độ phân giải không cao.
-- Với nhiều quầy/máy hoặc nghiệp vụ thật, nên chuyển lưu trữ sang SQLite/server DB, thêm kiểm thử tích hợp và xác thực người dùng.
+- Với nhiều quầy/máy hoặc nghiệp vụ thật, nên chuyển lưu trữ sang SQLite/server DB, thêm kiểm thử tích hợp và xác thực người dùng..
