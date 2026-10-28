@@ -1,0 +1,7 @@
+build/
+*.class
+cafe.dat
+cafe.lock
+cafe.tmp
+.idea/
+.vscode/
