@@ -8,14 +8,20 @@ import java.util.List;
 
 /** Ứng dụng quản trị: nhập/xuất kho, khuyến mãi, báo cáo. */
 public final class AdminApp extends JFrame {
-    private final CafeService service = new CafeService();
-    private Data.State state = service.snapshot();
+    private final AuthService.Session session;
+    private final CafeService service;
+    private Data.State state;
+    private Timer refreshTimer;
     private final JPanel host = Ui.panel(new BorderLayout());
     private String page = "STOCK";
     private LocalDate reportDay = LocalDate.now();
 
-    public AdminApp() {
+    public AdminApp(AuthService.Session session) {
         super("CAFE • Admin");
+        java.util.Objects.requireNonNull(session, "Cần đăng nhập trước khi mở Admin.").requireRole(Role.ADMIN);
+        this.session = session;
+        this.service = new CafeService();
+        this.state = service.snapshot();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1040, 780);
         setMinimumSize(new Dimension(850, 620));
@@ -29,7 +35,8 @@ public final class AdminApp extends JFrame {
         main.add(host, BorderLayout.CENTER);
         add(main, BorderLayout.CENTER);
         showPage();
-        new Timer(2300, e -> poll()).start();
+        refreshTimer = new Timer(2300, e -> poll());
+        refreshTimer.start();
     }
 
     private JPanel sidebar() {
@@ -49,6 +56,12 @@ public final class AdminApp extends JFrame {
         foot.add(Ui.label("Dữ liệu liên thông POS", 11, true, Ui.GREEN));
         foot.add(Box.createVerticalStrut(5));
         foot.add(Ui.label("File: cafe.dat", 11, false, Ui.MUTED));
+        foot.add(Box.createVerticalStrut(16));
+        foot.add(Ui.label(session.user().displayName(), 12, true, Ui.DARK));
+        foot.add(Box.createVerticalStrut(4));
+        foot.add(Ui.label(session.user().role().label(), 11, false, Ui.MUTED));
+        foot.add(Box.createVerticalStrut(10));
+        foot.add(Ui.light("Đăng xuất", e -> logout()));
         side.add(foot, BorderLayout.SOUTH);
         return side;
     }
@@ -235,8 +248,20 @@ public final class AdminApp extends JFrame {
             /* Hành động tiếp theo sẽ báo lỗi. */ }
     }
 
+    private void logout() {
+        new LoginFrame(Role.ADMIN).setVisible(true);
+        dispose();
+    }
+
+    @Override
+    public void dispose() {
+        if (refreshTimer != null) refreshTimer.stop();
+        if (session != null) session.logout();
+        super.dispose();
+    }
+
     public static void main(String[] args) {
         Ui.theme();
-        SwingUtilities.invokeLater(() -> new AdminApp().setVisible(true));
+        SwingUtilities.invokeLater(() -> new LoginFrame(Role.ADMIN).setVisible(true));
     }
 }

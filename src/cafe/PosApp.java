@@ -10,8 +10,10 @@ import java.util.Map;
 
 /** Ứng dụng nhân viên/POS. */
 public final class PosApp extends JFrame {
-    private final CafeService service = new CafeService();
-    private Data.State state = service.snapshot();
+    private final AuthService.Session session;
+    private final CafeService service;
+    private Data.State state;
+    private Timer refreshTimer;
     private final Map<String, Integer> cart = new LinkedHashMap<>();
     private final JPanel contentHost = Ui.panel(new BorderLayout());
     private final JPanel cartHost = Ui.panel(new BorderLayout());
@@ -24,8 +26,12 @@ public final class PosApp extends JFrame {
     private String page = "MENU", category = "Tất cả";
     private LocalDate reportDay = LocalDate.now();
 
-    public PosApp() {
+    public PosApp(AuthService.Session session) {
         super("CAFE • Nhân viên POS");
+        java.util.Objects.requireNonNull(session, "Cần đăng nhập trước khi mở POS.").requireRole(Role.STAFF);
+        this.session = session;
+        this.service = new CafeService();
+        this.state = service.snapshot();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1310, 800);
         setMinimumSize(new Dimension(1080, 650));
@@ -40,7 +46,8 @@ public final class PosApp extends JFrame {
         add(middle, BorderLayout.CENTER);
         add(cartHost, BorderLayout.EAST);
         showPage();
-        new Timer(2300, e -> poll()).start();
+        refreshTimer = new Timer(2300, e -> poll());
+        refreshTimer.start();
     }
 
     private JPanel sidebar() {
@@ -60,6 +67,12 @@ public final class PosApp extends JFrame {
         bottom.add(Ui.label("Đang kết nối dữ liệu", 11, true, Ui.GREEN));
         bottom.add(Box.createVerticalStrut(5));
         bottom.add(Ui.label("Đồng bộ mỗi 2,3 giây", 11, false, Ui.MUTED));
+        bottom.add(Box.createVerticalStrut(16));
+        bottom.add(Ui.label(session.user().displayName(), 12, true, Ui.DARK));
+        bottom.add(Box.createVerticalStrut(4));
+        bottom.add(Ui.label(session.user().role().label(), 11, false, Ui.MUTED));
+        bottom.add(Box.createVerticalStrut(10));
+        bottom.add(Ui.light("Đăng xuất", e -> logout()));
         side.add(bottom, BorderLayout.SOUTH);
         return side;
     }
@@ -79,7 +92,7 @@ public final class PosApp extends JFrame {
     private JPanel header() {
         JPanel h = Ui.panel(new BorderLayout(8, 0));
         JPanel name = Ui.vertical(0);
-        name.add(Ui.label("Xin chào, nhân viên!", 25, true, Ui.DARK));
+        name.add(Ui.label("Xin chào, " + session.user().username() + "!", 25, true, Ui.DARK));
         name.add(Box.createVerticalStrut(5));
         name.add(Ui.label("Chọn món và quản lý đơn hàng tại đây", 12, false, Ui.MUTED));
         h.add(name, BorderLayout.WEST);
@@ -426,8 +439,24 @@ public final class PosApp extends JFrame {
             /* Thao tác kế tiếp sẽ hiển thị lỗi. */ }
     }
 
+    private void logout() {
+        if (!cart.isEmpty() && JOptionPane.showConfirmDialog(this,
+                "Giỏ hàng chưa đặt sẽ được xóa. Bạn muốn đăng xuất?", "Đăng xuất",
+                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        cart.clear();
+        new LoginFrame(Role.STAFF).setVisible(true);
+        dispose();
+    }
+
+    @Override
+    public void dispose() {
+        if (refreshTimer != null) refreshTimer.stop();
+        if (session != null) session.logout();
+        super.dispose();
+    }
+
     public static void main(String[] args) {
         Ui.theme();
-        SwingUtilities.invokeLater(() -> new PosApp().setVisible(true));
+        SwingUtilities.invokeLater(() -> new LoginFrame(Role.STAFF).setVisible(true));
     }
 }

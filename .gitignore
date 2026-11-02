@@ -3,5 +3,9 @@ build/
 cafe.dat
 cafe.lock
 cafe.tmp
+users.dat
+users.lock
+users.tmp
+users-*.tmp
 .idea/
 .vscode/
