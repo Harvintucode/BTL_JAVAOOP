@@ -44,12 +44,18 @@ public final class Data {
         public final List<Line> lines;
 
         public Order(long id, String customer, Payment payment, Serving serving, List<Line> lines) {
+            this(id, customer, LocalDateTime.now(), payment, serving, lines);
+        }
+
+        /** Dựng lại đơn đã có (ví dụ khi nhận từ máy chủ qua mạng). */
+        public Order(long id, String customer, LocalDateTime createdAt,
+                     Payment payment, Serving serving, List<Line> lines) {
             this.id = id;
             this.customer = customer;
             this.payment = payment;
             this.serving = serving;
             this.lines = new ArrayList<>(lines);
-            this.createdAt = LocalDateTime.now();
+            this.createdAt = createdAt;
         }
         public long subtotal() { return lines.stream().mapToLong(Line::subtotal).sum(); }
         public long discount() { return lines.stream().mapToLong(Line::discount).sum(); }

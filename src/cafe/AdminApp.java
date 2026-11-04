@@ -8,14 +8,25 @@ import java.util.List;
 
 /** Ứng dụng quản trị: nhập/xuất kho, khuyến mãi, báo cáo. */
 public final class AdminApp extends JFrame {
-    private final CafeService service = new CafeService();
-    private Data.State state = service.snapshot();
+    private final AuthService.Session session;
+    private final CafeApi service;
+    private Data.State state;
+    private Timer refreshTimer;
+    private boolean polling;
     private final JPanel host = Ui.panel(new BorderLayout());
     private String page = "STOCK";
     private LocalDate reportDay = LocalDate.now();
 
-    public AdminApp() {
+    public AdminApp(AuthService.Session session) {
+        this(session, new CafeService());
+    }
+
+    public AdminApp(AuthService.Session session, CafeApi service) {
         super("CAFE • Admin");
+        java.util.Objects.requireNonNull(session, "Cần đăng nhập trước khi mở Admin.").requireRole(Role.ADMIN);
+        this.session = session;
+        this.service = java.util.Objects.requireNonNull(service, "service");
+        this.state = service.snapshot();
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(1040, 780);
         setMinimumSize(new Dimension(850, 620));
@@ -29,7 +40,8 @@ public final class AdminApp extends JFrame {
         main.add(host, BorderLayout.CENTER);
         add(main, BorderLayout.CENTER);
         showPage();
-        new Timer(2300, e -> poll()).start();
+        refreshTimer = new Timer(2300, e -> poll());
+        refreshTimer.start();
     }
 
     private JPanel sidebar() {
@@ -49,6 +61,12 @@ public final class AdminApp extends JFrame {
         foot.add(Ui.label("Dữ liệu liên thông POS", 11, true, Ui.GREEN));
         foot.add(Box.createVerticalStrut(5));
         foot.add(Ui.label("File: cafe.dat", 11, false, Ui.MUTED));
+        foot.add(Box.createVerticalStrut(16));
+        foot.add(Ui.label(session.user().displayName(), 12, true, Ui.DARK));
+        foot.add(Box.createVerticalStrut(4));
+        foot.add(Ui.label(session.user().role().label(), 11, false, Ui.MUTED));
+        foot.add(Box.createVerticalStrut(10));
+        foot.add(Ui.light("Đăng xuất", e -> logout()));
         side.add(foot, BorderLayout.SOUTH);
         return side;
     }
@@ -224,19 +242,46 @@ public final class AdminApp extends JFrame {
         showPage();
     }
 
+    /** Đọc dữ liệu ở luồng nền để giao diện không bị đứng khi mạng chậm hoặc mất kết nối. */
     private void poll() {
-        try {
-            Data.State latest = service.snapshot();
-            if (latest.revision != state.revision) {
-                state = latest;
-                showPage();
+        if (polling) return;
+        polling = true;
+        new SwingWorker<Data.State, Void>() {
+            @Override
+            protected Data.State doInBackground() {
+                return service.snapshot();
             }
-        } catch (Exception ex) {
-            /* Hành động tiếp theo sẽ báo lỗi. */ }
+
+            @Override
+            protected void done() {
+                polling = false;
+                try {
+                    Data.State latest = get();
+                    if (latest.revision != state.revision) {
+                        state = latest;
+                        showPage();
+                    }
+                } catch (Exception ex) {
+                    /* Hành động tiếp theo sẽ báo lỗi. */ }
+            }
+        }.execute();
+    }
+
+    private void logout() {
+        new LoginFrame(Role.ADMIN).setVisible(true);
+        dispose();
+    }
+
+    @Override
+    public void dispose() {
+        if (refreshTimer != null) refreshTimer.stop();
+        if (session != null) session.logout();
+        if (service != null) service.close();
+        super.dispose();
     }
 
     public static void main(String[] args) {
         Ui.theme();
-        SwingUtilities.invokeLater(() -> new AdminApp().setVisible(true));
+        SwingUtilities.invokeLater(() -> new LoginFrame(Role.ADMIN).setVisible(true));
     }
 }

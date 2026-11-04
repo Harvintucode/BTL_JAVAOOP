@@ -8,8 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 /** Quy tắc nghiệp vụ được dùng chung bởi POS và Admin. */
-public final class CafeService {
+public final class CafeService implements CafeApi {
     private final Store store = new Store();
+    @Override
     public Data.State snapshot() { return store.read(s -> s); }
 
     public static int available(Data.State s, Data.Product p) {

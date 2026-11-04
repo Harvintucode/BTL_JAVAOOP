@@ -3,5 +3,12 @@ build/
 cafe.dat
 cafe.lock
 cafe.tmp
+users.dat
+users.lock
+users.tmp
+users-*.tmp
 .idea/
 .vscode/
+
+# Dia chi may chu LAN rieng cua tung may
+server.txt
