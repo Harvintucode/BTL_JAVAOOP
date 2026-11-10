@@ -1,156 +1,191 @@
-# Cotafe — 2 ứng dụng Java chạy song song, dùng chung file `.dat`
+# PTIT eMB – Mini Web Bank (OWASP A01:2025 Broken Access Control)
 
-Hai ứng dụng **Java Swing thuần (không cần Maven, Gradle, JavaFX hoặc thư viện ngoài)**:
+Web ngân hàng số mini dùng để **minh họa cách phòng chống** lỗi kiểm soát truy cập (Broken Access Control) theo 5 case CWE, kèm nghiệp vụ ngân hàng cơ bản, bộ test tự động, rule SAST và hướng dẫn deploy online.
 
-- **POS (nhân viên):** danh sách món, tìm kiếm/lọc, giỏ hàng, đặt món; chọn **tiền mặt / QR**, **tại chỗ / mang đi**; đơn **Đang xử lý → Đã thanh toán**, có nút **Xác nhận thanh toán** hoặc **Hủy đơn**; xem lịch sử và báo cáo doanh thu.
-- **Admin:** xem tồn kho, **nhập/xuất nguyên liệu**; thêm/xóa **khuyến mãi theo món + ngày + %**; báo cáo doanh thu giống POS.
-- **Đăng nhập:** mỗi app yêu cầu tài khoản phù hợp trước khi mở giao diện; hiển thị người đang đăng nhập và hỗ trợ đăng xuất.
+## Giao diện và nghiệp vụ
 
-> Giao diện lấy cảm hứng bố cục và hình minh họa món từ ảnh tham khảo do người dùng cung cấp. Không tích hợp cổng thanh toán thực tế: QR là lựa chọn ghi nhận phương thức thanh toán; người dùng cần xác nhận đã nhận tiền.
+- **Trang công khai:** top bar phân khúc (Cá nhân / Doanh nghiệp / Cao cấp), khung đăng nhập nổi trên banner, thanh dịch vụ nhanh (bấm vào hiện thông báo "Hệ thống đang hoàn thiện tính năng này"), bảng lãi suất và tỷ giá (số liệu minh họa).
+- **Cổng eBanking:** sidebar dọc theo vai trò, màu theo vai trò (khách hàng: xanh dương nhạt; giao dịch viên: xanh đậm; admin: xám – đen).
+- **Khách hàng (USER):** xem số dư, chuyển tiền 24/7 (có bước xác nhận và biên lai), lịch sử giao dịch, xuất sao kê `.csv`, đăng ký vay, cập nhật hồ sơ, kiểm tra webhook.
+- **Giao dịch viên (TELLER):** tra cứu khách hàng (chỉ đọc), duyệt/từ chối khoản vay **≤ 100.000.000 ₫**. Không chuyển tiền hộ khách (tách nhiệm vụ), không xem nhật ký kiểm toán.
+- **Admin (Giám đốc chi nhánh):** duyệt mọi khoản vay (kể cả VIP), xem nhật ký kiểm toán, phân quyền người dùng. Không có chức năng sửa số dư trực tiếp.
 
-## Cách chạy trên Windows
+## 5 case CWE được xử lý
 
-1. Cài **JDK 17 hoặc mới hơn**, đặt `JAVA_HOME` trỏ tới thư mục JDK hoặc thêm thư mục `JDK\bin` (có `java`, `javaw`, `javac`) vào `PATH`. Các script ưu tiên JDK hợp lệ trong `JAVA_HOME`, sau đó mới dùng `PATH`.
-2. Giải nén toàn bộ project vào cùng **một** thư mục (giữ nguyên `src` và `assets`).
-3. **Nhấp đúp `run.bat`**. Script biên dịch và mở **hai cửa sổ đăng nhập** cho POS và Admin. Nhập tài khoản trong bảng bên dưới để mở app tương ứng.
-4. Hai app đọc/ghi file **`cafe.dat` nằm cùng cấp với `run.bat`**; file được tạo tự động trong lần đầu chạy. File `cafe.lock` được dùng để khóa ghi liên tiến trình.
-5. Có thể chạy riêng `run-pos.bat` hoặc `run-admin.bat` sau khi đã biên dịch bằng `run.bat`.
+| Case | CWE | Nội dung | Biện pháp trong code |
+|---|---|---|---|
+| 1 | CWE-639 | IDOR / BOLA + HTTP Parameter Pollution | Kiểm tra quyền sở hữu tài khoản, ép `accountId` là chuỗi 4 số (chặn mảng HPP) |
+| 2 | CWE-285 / 862 | BFLA, Verb Tampering, header giả vai trò | `onlyMethods('POST')` + `requireRole`, role lấy từ DB, bỏ qua `X-Forwarded-Role`, Teller bị giới hạn hạn mức duyệt |
+| 3 | CWE-915 | Mass Assignment / BOPLA | Allowlist DTO: chỉ nhận `fullName`, `phone`, `email` (có kiểm tra định dạng), ghi nhật ký khi gửi trường cấm |
+| 4 | CWE-22 | Path Traversal | Không dùng input làm đường dẫn; tra file theo chủ sở hữu, `path.basename`, kiểm tra tiền tố thư mục |
+| 5 | CWE-918 | SSRF | Chỉ http/https, phân giải DNS, chặn loopback/RFC1918/link-local/IPv6 (kể cả dạng IPv4-mapped); chỉ xác thực URL, không gọi ra ngoài |
 
-### Tài khoản đăng nhập demo
+Bảo mật bổ sung: chuyển tiền chỉ trích từ tài khoản của phiên đăng nhập, kiểm tra số tiền nguyên dương và hạn mức, sao kê CSV chống formula injection, giao diện escape toàn bộ dữ liệu động (chống XSS), mật khẩu băm `scrypt`, JWT HS256 cố định thuật toán (chặn `alg=none`), giới hạn đăng nhập sai, security headers, nhật ký các truy cập bị từ chối.
 
-| Tên đăng nhập | Mật khẩu | Vai trò | App được phép truy cập |
-| --- | --- | --- | --- |
-| `staff` | `Staff@123` | Nhân viên | POS |
-| `admin` | `Admin@123` | Quản trị viên | POS và Admin |
+## Phân quyền (RBAC)
 
-Hai tài khoản demo được tạo tự động trong lần đăng nhập đầu tiên khi chưa có `users.dat`. Tên đăng nhập được bỏ khoảng trắng ở hai đầu và không phân biệt chữ hoa/chữ thường; mật khẩu phân biệt chữ hoa/chữ thường và giữ nguyên khoảng trắng. Không cần đăng ký tài khoản để chạy thử.
+Hệ thống có 3 vai trò. Mọi quyết định phân quyền được thực hiện **ở máy chủ**, dựa trên vai trò lưu trong CSDL của phiên đăng nhập, không tin vào `role` trong token, header (`X-Forwarded-Role`) hay body do client gửi.
 
-- Tài khoản được lưu trong **`users.dat`**, cùng thư mục với `cafe.dat`; chỉ lưu giá trị băm **PBKDF2-HMAC-SHA256** và salt riêng cho từng tài khoản, không lưu mật khẩu dạng rõ. Đây là file nhị phân có phiên bản định dạng riêng, không phải file văn bản.
-- Hai app dùng chung kho tài khoản. `users.lock` bảo vệ việc khởi tạo/đọc dữ liệu giữa các tiến trình; dữ liệu được ghi qua file tạm trước khi thay thế.
-- Nút **Đăng xuất** kết thúc phiên hiện tại, đóng cửa sổ nghiệp vụ và đưa app trở lại màn hình đăng nhập. Mỗi app có phiên riêng: đăng xuất POS không đăng xuất cửa sổ Admin đang mở.
-- Thêm đăng nhập không thay đổi cấu trúc hay xóa dữ liệu đơn hàng, tồn kho và khuyến mãi trong `cafe.dat`.
+| Chức năng (API) | Chưa đăng nhập | USER | TELLER | ADMIN |
+|---|:-:|:-:|:-:|:-:|
+| Xem số dư và lịch sử giao dịch (`GET /api/accounts/detail`) | 401 | Chỉ TK của mình | Mọi TK (chỉ đọc) | Mọi TK (chỉ đọc) |
+| Tra cứu danh sách khách hàng (`GET /api/staff/customers`) | 401 | 403 | Có | Có |
+| Chuyển tiền (`POST /api/transactions/transfer`) | 401 | Có, chỉ từ TK của mình | 403 (tách nhiệm vụ) | 403 (tách nhiệm vụ) |
+| Xuất sao kê CSV (`GET /api/statements/download`) | 401 | Chỉ sao kê của mình | Không áp dụng | Không áp dụng |
+| Xem khoản vay (`GET /api/loans`) | 401 | Chỉ khoản vay của mình | Tất cả | Tất cả |
+| Đăng ký vay (`POST /api/loans/apply`) | 401 | Có | 403 | 403 |
+| Duyệt / từ chối vay (`POST /api/admin/approve-loan`) | 401 | 403 | Khoản vay ≤ 100.000.000 ₫ | Mọi khoản vay, gồm VIP |
+| Cập nhật hồ sơ: họ tên, SĐT, email (`PUT /api/profile/update`) | 401 | Có | Có | Có |
+| Kiểm tra webhook (`POST /api/webhooks/test`) | 401 | Có | Có | Có |
+| Nhật ký kiểm toán (`GET /api/admin/audit`) | 401 | 403 | 403 | Có |
+| Danh sách người dùng, đổi vai trò (`/api/admin/users`) | 401 | 403 | 403 | Có (không tự đổi quyền của mình) |
+| Sửa trực tiếp số dư, vai trò, hạn mức qua hồ sơ | Không có chức năng này ở bất kỳ vai trò nào | | | |
 
-### Thử đăng nhập và phân quyền
+Nguyên tắc áp dụng:
 
-1. Chạy `run.bat`. Trước khi đăng nhập, chỉ thấy màn hình đăng nhập của từng app.
-2. Ở POS, nhập `staff` / `Staff@123`: giao diện bán hàng mở và hiển thị tên người dùng.
-3. Ở Admin, thử `staff` / `Staff@123`: app từ chối vì tài khoản không có quyền quản trị. Dùng `admin` / `Admin@123` để vào Admin.
-4. Thử bỏ trống tên/mật khẩu hoặc nhập sai mật khẩu: màn hình thông báo lỗi và không mở app.
-5. Đăng xuất rồi đăng nhập lại; cũng có thể dùng tài khoản `admin` để vào POS.
+1. **Từ chối theo mặc định:** mọi route nghiệp vụ đều qua `authenticate`, route nhạy cảm qua thêm `requireRole(...)`.
+2. **Kiểm tra quyền sở hữu (ownership):** USER chỉ truy cập dữ liệu có `accountId` trùng với tài khoản của phiên.
+3. **Tách nhiệm vụ (SoD):** nhân viên ngân hàng không được lập lệnh chuyển tiền hộ khách.
+4. **Phân cấp thẩm quyền:** Teller bị giới hạn hạn mức duyệt vay, vượt hạn mức trả về 403 và ghi nhật ký `DENY_LIMIT`.
+5. **Khóa phương thức HTTP:** `approve-loan` chỉ nhận `POST`, các method khác trả 405.
+6. **Allowlist đầu vào:** hồ sơ chỉ nhận 3 trường cho phép, các trường như `role`, `balance`, `creditLimit`, `tier` bị bỏ qua và ghi nhật ký.
 
-### Thử nghiệm nhanh
+Mã trả về khi bị từ chối: `401` chưa đăng nhập hoặc token sai, `403` không đủ quyền, `405` sai method, `400` dữ liệu không hợp lệ.
 
-1. Ở POS, thêm `Americano` → chọn `QR`, `Mang đi` → **Đặt hàng**. Đơn sẽ ở trạng thái **Đang xử lý**, nguyên liệu bị trừ ngay để giữ chỗ.
-2. Ở POS vào **Đơn hàng**, chọn **Xác nhận thanh toán** → trạng thái chuyển sang **Đã thanh toán**, lúc này báo cáo mới cộng doanh thu. Nếu **Hủy đơn** khi vẫn đang xử lý, tồn kho được **hoàn lại** và đơn hiển thị **Đã hủy**.
-3. Ở Admin vào **Kho nguyên liệu**, thử nhập/xuất hoặc trừ hết nguyên liệu có trong công thức. Sau khoảng 2,3 giây, POS tự báo **HẾT MÓN** với các món không thể chế biến.
-4. Ở Admin vào **Khuyến mãi**, thêm giảm 20% cho `Americano` vào ngày hiện tại. Đơn POS **tạo mới** trong ngày sẽ áp dụng giảm giá đó; đơn cũ giữ nguyên mức giá đã chốt.
-5. Cả hai app vào **Doanh thu**, xem số liệu trên ngày đã chọn (mặc định hôm nay).
-
-**Định nghĩa doanh thu:** tổng tiền của đơn có trạng thái `PAID`, ghi nhận theo **thời điểm xác nhận thanh toán**, không phải thời điểm tạo đơn. Không tính đơn pending/cancelled. Không có phí thuế và phí dịch vụ. Nếu trùng khuyến mãi cho cùng món/cùng ngày, lấy mức giảm **cao nhất** (không cộng dồn).
-
-## Chạy trên mạng LAN (nhiều máy)
-
-Khi dùng nhiều máy, **chỉ một máy (máy quầy) giữ dữ liệu** `cafe.dat`/`users.dat` và chạy máy chủ; các máy POS/Admin khác gọi qua mạng. **Không** chia sẻ thư mục `.dat` qua ổ đĩa mạng, vì khóa file trên SMB không đáng tin.
+## 1. Cấu trúc thư mục
 
 ```
-[Máy quầy] run-server.bat ──► giữ cafe.dat + users.dat
-     ▲  ▲        HTTP + JSON (cổng 8080)
-     │  └── Máy 2: run-pos-lan.bat
-     └───── Máy 3: run-admin-lan.bat
+mini-web-bank/
+├── package.json
+├── server.js                  # Backend API + CSDL in-memory + toàn bộ biện pháp phòng thủ
+├── public/index.html          # Trang công khai + cổng eBanking 3 vai trò (không chứa công cụ kiểm thử)
+├── test/access-control.test.js# Test tự động (node:test), tự bật server, không cần chạy riêng
+├── security-lab/run.js        # Security Lab: kiểm thử phân quyền từ bên ngoài qua HTTP
+├── semgrep-bac.yaml           # Rule SAST phát hiện thiếu phân quyền
+├── render.yaml                # Cấu hình deploy Render
+├── .env.example
+└── README.md
 ```
 
-1. **Máy chủ:** nhấp đúp `run-server.bat`. Cửa sổ hiện địa chỉ dạng `192.168.1.10:8080`. Lần đầu Windows hỏi tường lửa, chọn **Allow** cho *Private networks* (hoặc mở cổng TCP 8080 vào). Đổi cổng: `run-server.bat 9000`. Giữ cửa sổ này mở.
-2. **Máy POS/Admin khác:** chép **toàn bộ project** sang máy đó (giữ `src` và `assets`), nhấp đúp `run-pos-lan.bat` hoặc `run-admin-lan.bat`. Lần đầu nhập địa chỉ máy chủ; địa chỉ được lưu vào `server.txt` (xóa file này để đổi máy chủ).
-3. Đăng nhập bằng tài khoản như bình thường. Việc xác thực và phân quyền do **máy chủ** thực hiện.
-4. Tất cả máy nên dùng **cùng một phiên bản mã nguồn** (menu và công thức nằm trong `Catalog.java`). Máy quầy vẫn có thể chạy `run.bat` (chế độ một máy) song song với server, hai bên dùng chung file qua khóa file.
+## 2. Chạy local
 
-Chạy thủ công: `java -Dcafe.server=192.168.1.10:8080 -cp build cafe.PosApp` (thiếu `-Dcafe.server` thì app chạy ở chế độ một máy như cũ).
+Yêu cầu Node.js >= 18.
 
-**Giao thức** (JSON qua HTTP, token `Authorization: Bearer ...` sau khi đăng nhập): `POST /api/login`, `POST /api/logout`, `GET /api/state?rev=N` (trả `{"unchanged":true}` nếu chưa đổi), `POST /api/orders`, `/api/orders/pay`, `/api/orders/cancel`, `/api/stock` *(Admin)*, `/api/promotions` và `/api/promotions/delete` *(Admin)*, `GET /api/ping`.
-
-**Lưu ý bảo mật:** dùng HTTP thường, mật khẩu đi dạng rõ trong mạng nội bộ; chỉ nên dùng trên mạng LAN tin cậy, không mở cổng ra Internet. Máy chủ chặn tạm một địa chỉ sau 5 lần đăng nhập sai và phiên hết hạn sau 12 giờ không dùng.
-
-## Cấu trúc
-
-```text
-cotafe-java-demo/
-├── run.bat                # Biên dịch + chạy 2 app trên Windows
-├── run-pos.bat            # Chỉ chạy POS (sau khi build)
-├── run-admin.bat          # Chỉ chạy Admin (sau khi build)
-├── run-server.bat         # Chạy máy chủ LAN (máy giữ dữ liệu)
-├── run-pos-lan.bat        # POS kết nối máy chủ LAN
-├── run-admin-lan.bat      # Admin kết nối máy chủ LAN
-├── lan-client.bat         # Script dùng chung của hai file *-lan.bat
-├── test.bat               # Kiểm thử nghiệp vụ, đăng nhập và máy chủ LAN
-├── README.md
-├── assets/                # 6 hình món đã crop từ ảnh tham khảo
-├── src/cafe/
-│   ├── Data.java          # Model Order, Promotion, Product, State
-│   ├── Catalog.java       # Menu, giá, định lượng công thức
-│   ├── Store.java         # File .dat + FileLock + ghi atomic
-│   ├── CafeApi.java       # Interface thao tác nghiệp vụ (cục bộ hoặc từ xa)
-│   ├── CafeService.java   # Đặt/hủy/thanh toán, kho, giảm giá, doanh thu (cục bộ)
-│   ├── CafeServer.java    # Máy chủ HTTP/JSON bao quanh CafeService + AuthService
-│   ├── ServerMain.java    # Điểm chạy của máy chủ LAN
-│   ├── RemoteCafeApi.java # Client gọi máy chủ qua LAN
-│   ├── Connection.java    # Chọn chế độ cục bộ hoặc LAN khi đăng nhập
-│   ├── Json.java          # JSON tối giản, không thư viện ngoài
-│   ├── Wire.java          # Dữ liệu nghiệp vụ <-> JSON
-│   ├── Role.java          # Vai trò và quyền truy cập app
-│   ├── User.java          # Thông tin người dùng bất biến
-│   ├── UserRepository.java # Interface truy xuất tài khoản
-│   ├── FileUserRepository.java # Kho tài khoản dùng chung trên file
-│   ├── PasswordHasher.java # Băm và kiểm tra mật khẩu
-│   ├── AuthService.java   # Xác thực, kiểm tra quyền và quản lý phiên
-│   ├── LoginFrame.java    # Giao diện đăng nhập dùng chung
-│   ├── Ui.java            # Theme, button, card, report
-│   ├── PosApp.java        # Giao diện POS
-│   └── AdminApp.java      # Giao diện Admin
-└── tests/cafe/            # Kiểm thử nghiệp vụ, xác thực và đa tiến trình
-
-# TỰ TẠO KHI CHẠY:
-├── build/                 # File .class
-├── cafe.dat               # Dữ liệu chia sẻ
-├── cafe.lock              # Khóa dữ liệu nghiệp vụ
-├── users.dat              # Tài khoản và mật khẩu đã băm
-└── users.lock             # Khóa kho tài khoản
+```bash
+cd mini-web-bank
+npm install
+npm start            # mở http://localhost:3000
 ```
 
-## Thiết kế đăng nhập theo hướng đối tượng
+### Tài khoản demo
 
-`User` đóng gói thông tin người dùng; `Role` biểu diễn vai trò và quy tắc truy cập. `PasswordHasher` chịu trách nhiệm băm/kiểm tra mật khẩu, tách biệt với giao diện.
+Trang chủ không hiển thị tài khoản mẫu. Dùng các tài khoản sau để đăng nhập (mật khẩu chung `Bank@2025`):
 
-`AuthService` phụ thuộc vào interface `UserRepository`, còn `FileUserRepository` cung cấp cách lưu tài khoản trên file. Có thể thay cách lưu trữ bằng một lớp triển khai interface khác mà không phải viết lại giao diện đăng nhập. Khi xác thực thành công, `AuthService` cấp một `Session`; phiên kiểm tra quyền trước khi mở `PosApp` hoặc `AdminApp` và bị vô hiệu hóa khi đăng xuất.
+| Tên đăng nhập | Vai trò | Số tài khoản | Ghi chú | Màu giao diện |
+|---|---|---|---|---|
+| `userA` | Khách hàng (USER) | 1001 | Cá nhân tiêu chuẩn, có hồ sơ vay #101 (45 triệu) | Xanh dương nhạt |
+| `userB` | Khách hàng (USER) | 1002 | Khách VIP, có hồ sơ vay #102 (350 triệu) | Xanh dương nhạt |
+| `teller1` | Giao dịch viên (TELLER) | 9001 | Duyệt vay đến 100 triệu | Xanh đậm |
+| `admin` | Giám đốc chi nhánh (ADMIN) | 9999 | Toàn quyền quản trị, không sửa được số dư | Xám – đen |
 
-`LoginFrame` thu thập tên đăng nhập/mật khẩu và hiển thị kết quả từ `AuthService`. Hai app dùng lại cùng màn hình đăng nhập, mỗi app yêu cầu vai trò tương ứng. Việc xác thực không trộn vào các quy tắc đặt món, thanh toán hoặc tồn kho của `CafeService`.
+Dữ liệu nằm trong bộ nhớ và được khởi tạo lại mỗi lần chạy `npm start`. Đây là tài khoản giả lập cho mục đích học tập, hãy đổi mật khẩu hoặc bỏ chúng nếu đưa vào môi trường thật.
 
-## Kiểm thử tự động
+## 3. Chạy kiểm thử
 
-Chạy **`test.bat`** để biên dịch mã nguồn và thực hiện `SmokeTest`, `AuthTest` và `ServerTest` (JSON, máy chủ LAN, phân quyền, 30 đơn đặt đồng thời qua mạng). Có thể dùng `test.bat --no-pause` khi chạy từ terminal hoặc công cụ tự động; script trả mã lỗi khác 0 nếu biên dịch/kiểm thử thất bại.
+### 3.1 Test tự động
+```bash
+npm test
+```
+Kết quả mong đợi: **22 test pass**, gồm xác thực/JWT giả, IDOR, HPP, BFLA (POST/PUT/GET/DELETE/PATCH + header giả), Mass Assignment, Path Traversal, SSRF (13 biến thể URL), chuyển tiền (SoD, trích tiền từ TK người khác, dữ liệu xấu), hạn mức duyệt của Teller, sao kê CSV, nhật ký an ninh. Mỗi test khẳng định hành vi trái phép bị chặn **và** hành vi hợp lệ vẫn chạy.
 
-Các bài kiểm thử dùng thư mục dữ liệu tạm: kiểm tra nghiệp vụ bán hàng hiện có, đăng nhập đúng/sai, quyền truy cập POS/Admin, đăng xuất, lưu tài khoản, từ chối dữ liệu tài khoản hỏng và khởi tạo tài khoản từ nhiều tiến trình.
+### 3.2 Kiểm thử trên giao diện
+1. `userA` → **Chuyển tiền 24/7**: chuyển 500.000 ₫ sang TK `1002`, xác nhận, nhận biên lai; vào **Lịch sử & Sao kê** thấy giao dịch mới và tải được file `.csv`.
+2. Chạy **Security Lab** (mục 3.2b) và đối chiếu kết quả với giao diện, ví dụ sau khi lab chạy, đăng nhập `admin` → **Nhật ký kiểm toán** sẽ thấy các sự kiện bị chặn.
+3. `teller1` → **Phê duyệt tín dụng**: duyệt hồ sơ #101 (45 triệu) thành công; duyệt #102 (350 triệu, VIP) bị chặn "Vượt thẩm quyền".
+4. `admin` → duyệt #102 thành công; **Nhật ký kiểm toán** thấy các sự kiện bị chặn của `userA` và `teller1`; **Phân quyền người dùng** đổi được vai trò người khác.
+5. `teller1` thử gọi API chuyển tiền (Burp/DevTools) nhận 403 do tách nhiệm vụ.
 
-Để kiểm tra giao diện tùy chọn, sau khi chạy `test.bat`, dùng `java -cp build cafe.LoginUiTest` trong thư mục dự án. Bài kiểm thử này cần desktop đồ họa, tự mở/đóng các cửa sổ thử nghiệm và dùng thư mục dữ liệu tạm; không chạy mặc định trong `test.bat`. Chạy bằng cùng JDK đã dùng để biên dịch; nếu terminal chưa đặt `PATH` đúng, dùng `"%JAVA_HOME%\bin\java" -cp build cafe.LoginUiTest` trong Command Prompt.
+### 3.2b Security Lab (chạy ngoài, không tích hợp vào web)
 
-## Thay đổi / reset
+Security Lab là một script độc lập, kiểm thử kiểu black-box qua HTTP nên không nằm trong giao diện web và có thể chạy với bản local hoặc bản đã deploy. Script tự đăng nhập 4 tài khoản demo, gửi các request trái phép và kỳ vọng máy chủ **chặn hoặc vô hiệu hóa** chúng.
 
-- Muốn đổi **menu/giá/định mức nguyên liệu**: sửa `src/cafe/Catalog.java`.
-- Muốn đổi **số tồn kho khởi tạo**: sửa constructor `Data.State()` trong `src/cafe/Data.java` (**chỉ ảnh hưởng file mới**).
-- Muốn đổi **quy tắc đơn hàng/giảm giá**: sửa `src/cafe/CafeService.java`.
-- Muốn sửa **giao diện**: xem `src/cafe/Ui.java`, `LoginFrame.java`, `PosApp.java`, `AdminApp.java`.
-- Muốn đổi **tài khoản demo khởi tạo**: xem `src/cafe/FileUserRepository.java` (chỉ ảnh hưởng kho tài khoản mới).
-- Khi sửa Java, đóng cửa sổ cũ và chạy lại `run.bat` để biên dịch.
-- **Reset dữ liệu demo**: đóng cả hai app, sau đó xóa `cafe.dat` (và tùy ý `cafe.lock`), mở lại. **Sao lưu `cafe.dat`** trước khi xóa nếu cần giữ lịch sử.
-- Không sửa trực tiếp `cafe.dat` bằng text editor: đây là file nhị phân Java Serialization.
-- **Reset tài khoản demo**: đóng cả hai app, sao lưu rồi xóa `users.dat`, sau đó đăng nhập lại để tạo lại tài khoản mặc định. Không cần xóa `cafe.dat`.
-- Nếu `users.dat` hỏng, đăng nhập sẽ báo lỗi; app không tự ghi đè kho tài khoản. Khôi phục bản sao lưu hoặc reset tài khoản theo hướng dẫn trên.
+```bash
+npm start                                   # cửa sổ 1: bật server
+npm run seclab                              # cửa sổ 2: chạy lab (mặc định http://localhost:3000)
 
-## Giới hạn của bản demo
+# Nhắm vào bản đã deploy
+BASE_URL=https://ten-ban.onrender.com npm run seclab
 
-- Chế độ một máy (`run.bat`) chỉ dùng trên **cùng một máy / một thư mục**. Muốn dùng nhiều máy hãy chạy theo mục **Chạy trên mạng LAN** (không chia sẻ file `.dat` qua ổ đĩa mạng).
-- Chức năng tài khoản hiện gồm đăng nhập, phân quyền truy cập app và đăng xuất; chưa có đăng ký, quản lý tài khoản hoặc đổi/quên mật khẩu.
-- Tài khoản mặc định dùng để minh họa. Phân quyền áp dụng trong luồng mở app, không bảo vệ dữ liệu trước người có quyền sửa file hoặc mã nguồn trên máy.
-- Chưa có in hóa đơn, tích hợp API ngân hàng hay QR thanh toán thật.
-- Ảnh món dùng bản crop từ ảnh tham khảo nên độ phân giải không cao.
-- Giao tiếp LAN dùng HTTP không mã hóa; chưa có HTTPS.
-- Với nghiệp vụ thật hoặc nhiều quầy tải cao, nên chuyển lưu trữ sang SQLite/server DB và bổ sung quản lý tài khoản cùng phân quyền ở tầng dịch vụ.
+# Chỉ chạy một nhóm ca (lọc theo từ khóa trong tên/CWE)
+ONLY=ssrf,path npm run seclab
+
+# Đổi mật khẩu demo nếu bạn đã đổi, tắt màu khi ghi log/CI
+LAB_PASSWORD=... NO_COLOR=1 npm run seclab
+```
+
+| Biến môi trường | Mặc định | Ý nghĩa |
+|---|---|---|
+| `BASE_URL` | `http://localhost:3000` | Địa chỉ hệ thống cần kiểm thử |
+| `LAB_PASSWORD` | `Bank@2025` | Mật khẩu của các tài khoản demo |
+| `ONLY` | (tất cả) | Danh sách từ khóa, phân tách bằng dấu phẩy |
+| `NO_COLOR` | (bật màu) | Đặt bất kỳ giá trị nào để tắt màu |
+
+Các ca kiểm thử (15 ca): IDOR, HPP, trích tiền từ tài khoản người khác, BFLA (PUT/GET/DELETE/PATCH và header `X-Forwarded-Role` giả), khách hàng gọi API quản trị/nhân viên, tự đổi vai trò, tách nhiệm vụ (Teller/Admin chuyển tiền), Teller duyệt vay vượt hạn mức, Mass Assignment, Path Traversal, SSRF (13 biến thể), token giả/không token, dữ liệu chuyển tiền bất thường.
+
+Kết quả mỗi ca là `PASS` (đã chặn), `FAIL` (bị rò rỉ) hoặc `SKIP` (không đủ điều kiện, ví dụ khoản vay VIP đã được duyệt trước đó). Mã thoát: `0` mọi ca đạt, `1` có ca rò rỉ, `2` không kết nối được hoặc không đăng nhập được. Nhờ mã thoát này có thể đưa vào CI.
+
+Lưu ý: ca "Teller duyệt khoản vay > 100 triệu" cần khoản vay #102 còn ở trạng thái chờ duyệt. Sau khi Admin duyệt #102, ca này sẽ `SKIP` cho đến khi khởi động lại server (dữ liệu in-memory được khởi tạo lại).
+
+Phân biệt hai bộ kiểm thử: `npm test` kiểm thử mã nguồn trong tiến trình (nhanh, chạy được khi chưa deploy); `npm run seclab` kiểm thử hệ thống đang chạy từ bên ngoài, phù hợp để chứng minh trên bản đã deploy.
+
+### 3.3 Quét SAST bằng Semgrep
+```bash
+pip install semgrep
+semgrep --config semgrep-bac.yaml server.js
+```
+Rule phát hiện: `Object.assign(x, req.body)`, đường dẫn dựng từ `req.query`, gọi URL từ `req.body`, phân quyền dựa trên dữ liệu client, route `/api/admin` thiếu middleware.
+
+### 3.4 Kiểm thử thủ công với Burp Suite / Autorize
+1. Bắt traffic của trình duyệt qua Burp (proxy 8080).
+2. Cài extension **Autorize**, dán JWT của `userA` vào ô Cookie/Header thấp quyền.
+3. Duyệt web bằng tài khoản `admin`/`teller1`; Autorize tự phát lại request bằng quyền `userA`.
+4. Mọi endpoint quản trị phải hiện **Enforced** (403/405).
+
+## 4. Deploy online
+
+### Render (miễn phí)
+1. Đẩy thư mục lên GitHub.
+2. Render → **New + → Blueprint** → chọn repo. File `render.yaml` tự tạo service và sinh `JWT_SECRET`.
+3. Sau khi build, truy cập URL `https://<tên>.onrender.com`.
+
+### Railway / Fly / VPS
+- Build: `npm install`, Start: `npm start`.
+- Đặt biến môi trường `JWT_SECRET` (chuỗi ngẫu nhiên dài). Ứng dụng đọc `PORT` từ môi trường.
+
+Lưu ý khi host công khai:
+- CSDL là **in-memory**, dữ liệu reset mỗi lần khởi động lại, phù hợp demo.
+- Tài khoản demo trong README dùng mật khẩu công khai; chỉ đưa dữ liệu giả lên bản demo.
+- Gói miễn phí có thể "ngủ" sau một thời gian không truy cập, lần mở đầu tiên sẽ chậm.
+
+## 5. Gợi ý trình bày với thầy
+1. Giới thiệu A01:2025 và 5 case CWE (bảng ở đầu file).
+2. Chạy `npm run seclab` ở cửa sổ riêng: từng request trái phép bị chặn, kèm mã HTTP.
+3. Mở **Nhật ký an ninh** (admin) để cho thấy khả năng phát hiện và truy vết.
+4. Chạy `npm test` và `semgrep` để chứng minh kiểm thử tự động và SAST.
+5. Giải thích phần sửa lỗi bắt được trong lúc làm: biến thể SSRF `::ffff:7f00:1` (Node chuẩn hóa IPv4-mapped sang dạng hex) từng lọt qua bộ lọc, đã được test phát hiện và vá.
+
+## 6. Tương đương Java Spring Boot (cho báo cáo)
+
+```java
+@GetMapping("/accounts/{accountId}")
+@PreAuthorize("@ownershipService.isOwner(authentication, #accountId) or hasAnyRole('TELLER','ADMIN')")
+public ResponseEntity<Account> getAccount(@PathVariable String accountId) { ... }
+
+@PostMapping("/admin/approve-loan")                    // khóa method
+@PreAuthorize("hasAnyRole('ADMIN','TELLER')")          // khóa role
+public ResponseEntity<String> approveLoan(@RequestParam Long loanId) { ... }
+
+public record UpdateProfileDTO(String fullName) {}     // DTO không có role/balance
+@PutMapping("/profile/update")
+public ResponseEntity<User> update(@RequestBody UpdateProfileDTO dto, Authentication auth) { ... }
+```
